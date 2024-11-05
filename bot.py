@@ -11,7 +11,7 @@ collection = db["users"]
 def get_reply_keyboard():
     return ReplyKeyboardMarkup(
         [['Ingresar Ingreso', 'Ver Resumen']],
-        one_time_keyboard=False,  # Keep the keyboard open
+        one_time_keyboard=True,  # Keep the keyboard open
         resize_keyboard=True  # Resize buttons for better appearance
     )
 
@@ -32,7 +32,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     elif text == 'Ver Resumen':
         await get_summary(update.message.chat.id, context)
     else:
-        await update.message.reply_text("Por favor, selecciona una opción del menú.")
+        if context.user_data.get("step") == "get_income":
+            await get_income(update, context)
+        else:
+            await update.message.reply_text("Por favor, selecciona una opción del menú.")
 
 async def get_income(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if context.user_data.get("step") != "get_income":
@@ -43,8 +46,32 @@ async def get_income(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         ingreso = float(update.message.text)
         context.user_data["ingreso"] = ingreso
 
-        # Cálculos según el método 50/30/20...
-        await update.message.reply_text(f"¡Datos guardados! Ingreso registrado como {ingreso:.2f}.")
+        # Cálculos según el método 50/30/20
+        necesidades = ingreso * 0.5
+        deseos = ingreso * 0.3
+        ahorros = ingreso * 0.2
+
+        # Guardar datos en MongoDB
+        collection.update_one(
+            {"user_id": update.effective_user.id}, # buscar el documento por user_id.
+            {
+                "$set":{
+                    "ingreso": ingreso,
+                    "necesidades": necesidades,
+                    "deseos": deseos,
+                    "ahorros": ahorros
+                }
+            },
+            upsert=True # se guarda si no existe.
+            )
+
+        # Responder al usuario con el desglose de finanzas
+        await update.message.reply_text(
+            f"¡Datos guardados! Según el método 50/30/20:\n"
+            f"Necesidades: {necesidades:.2f}\n"
+            f"Deseos: {deseos:.2f}\n"
+            f"Ahorros: {ahorros:.2f}"
+        )
         
     except ValueError:
         await update.message.reply_text("Por favor, ingresa un valor numérico para tu ingreso mensual.")
