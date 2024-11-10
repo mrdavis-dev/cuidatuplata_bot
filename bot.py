@@ -108,7 +108,7 @@ async def insert_expenses_or_income(update: Update, context: ContextTypes.DEFAUL
     categoria = query.data
     context.user_data["categoria"] = categoria
 
-    if categoria in ['gasto_fijo', 'gasto_variable', 'ahorro_o_inversion']:
+    if categoria in ['gasto_fijo', 'gasto_variable', 'ahorro_o_inversion', 'ingreso']:
         await context.bot.send_message(query.message.chat.id, "Ingresa el monto:")
         context.user_data['step'] = "get_monto"
 
@@ -116,9 +116,13 @@ async def handle_monto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     try:
         monto = float(update.message.text)
         context.user_data['monto'] = monto
+        categoria = context.user_data.get('categoria')
 
         await context.bot.send_message(update.message.chat.id, f"El monto es: {monto:.2f}.")
-        await context.bot.send_message(update.message.chat.id, "Ingresa una descripción para este gasto:")
+        if categoria == 'ingreso':
+            await context.bot.send_message(update.message.chat.id, "Ingresa una descripción para este ingreso:")
+        else:
+            await context.bot.send_message(update.message.chat.id, "Ingresa una descripción para este gasto:")
         context.user_data['step'] = 'get_descripcion'
     except ValueError:
         await context.bot.send_message(update.message.chat.id, "Por favor, ingresa un valor numérico válido para el monto.")
@@ -143,7 +147,7 @@ async def handle_descripcion(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     await context.bot.send_message(
         update.message.chat.id, 
-        f"Gasto registrado:\nCategoría: {categoria}\nMonto: {monto:.2f}\nDescripción: {descripcion}"
+        f"Registrado creado:\nCategoría: {categoria}\nMonto: {monto:.2f}\nDescripción: {descripcion}"
     )
 
     context.user_data['step'] = None
