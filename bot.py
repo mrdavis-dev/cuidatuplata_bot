@@ -4,7 +4,8 @@ from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, Cal
 from datetime import datetime
 import os
 
-client = MongoClient("mongodb://localhost:27017/")
+clave = os.getenv("CLAVE")
+client = MongoClient(f"mongodb+srv://botpaylog:{clave}@cluster0.u6rqw.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
 db = client["paylog"]
 collection = db["users"]
 collection_reg = db["registro"]
@@ -20,7 +21,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     reply_markup = get_reply_keyboard()
     
     await update.message.reply_text(
-        "Hola! Soy tu bot de finanzas 50/30/20. ¿Qué deseas hacer?",
+        "Hola! Soy tu bot de finanzas. ¿Qué deseas hacer?",
         reply_markup=reply_markup
     )
 
@@ -125,16 +126,16 @@ async def get_summary(chat_id, context):
 
     # Formatear cada categoría con alerta si se excede
     gastos_fijos_texto = (
-        f"🔸 *Gastos Fijos*: `{gastos_fijos_neto:.2f}` (Referencia: máx 50% = `{limite_gastos_fijos:.2f}`)\n"
-        f"   ➡️ *Disponible*: `{'⚠️ Excedido' if disponible_gastos_fijos < 0 else f'{disponible_gastos_fijos:.2f}'}` 📉\n\n"
+        f"🔸 Gastos Fijos: `{gastos_fijos_neto:.2f}` (Referencia: máx 50% = `{limite_gastos_fijos:.2f}`)\n"
+        f"   ➡️ Disponible: `{'⚠️ Excedido' if disponible_gastos_fijos < 0 else f'{disponible_gastos_fijos:.2f}'}` 📉\n\n"
     )
     gastos_variables_texto = (
-        f"🔸 *Gastos Variables*: `{gastos_variables_neto:.2f}` (Referencia: máx 30% = `{limite_gastos_variables:.2f}`)\n"
-        f"   ➡️ *Disponible*: `{'⚠️ Excedido' if disponible_gastos_variables < 0 else f'{disponible_gastos_variables:.2f}'}` 📉\n\n"
+        f"🔸 Gastos Variables: `{gastos_variables_neto:.2f}` (Referencia: máx 30% = `{limite_gastos_variables:.2f}`)\n"
+        f"   ➡️ Disponible: `{'⚠️ Excedido' if disponible_gastos_variables < 0 else f'{disponible_gastos_variables:.2f}'}` 📉\n\n"
     )
     ahorros_texto = (
-        f"🔸 *Ahorros*: `{ahorros_neto:.2f}` (Referencia: mín 20% = `{limite_ahorros:.2f}`)\n"
-        f"   ➡️ *Disponible*: `{'⚠️ Excedido' if disponible_ahorros < 0 else f'{disponible_ahorros:.2f}'}` 💹\n\n"
+        f"🔸 Ahorros: `{ahorros_neto:.2f}` (Referencia: mín 20% = `{limite_ahorros:.2f}`)\n"
+        f"   ➡️ Disponible: `{'⚠️ Excedido' if disponible_ahorros < 0 else f'{disponible_ahorros:.2f}'}` 💹\n\n"
     )
 
     if user_data:
