@@ -2,6 +2,8 @@ from pymongo import MongoClient
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes
 from datetime import datetime
+from apscheduler.schedulers.background import BackgroundScheduler
+import asyncio
 import os
 
 client = MongoClient("mongodb://localhost:27017/")
@@ -88,15 +90,62 @@ async def get_income(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await update.message.reply_text("Por favor, ingresa un valor numérico para tu ingreso mensual.")
 
 async def get_summary(chat_id, context):
-    user_data = collection.find_one({"user_id": chat_id})
+    user_data = collection.find_one({'user_id': chat_id})
+    user_data_registro = collection_reg.find({'user_id': chat_id})
+
+    total_ingreso = 0
+    total_ahorro_inversion = 0
+    total_gastos_fijos = 0
+    total_gastos_variables = 0
+
+    for registro in user_data_registro:
+        categoria = registro.get('categoria')
+        monto = registro.get('monto', 0)
+
+        if categoria == 'ingreso':
+            total_ingreso =+ monto
+        elif categoria == 'ahorro_o_inversion':
+            total_ahorro_inversion += monto
+        elif categoria == 'gasto_fijo':
+            total_gastos_fijos += monto
+        elif categoria == 'gasto_variable':
+            total_gastos_variables += monto
     
+    ingreso_total = user_data.get('ingreso', 0) + total_ingreso
+
+    limite_gastos_fijos = ingreso_total * 0.50
+    limite_gastos_variables = ingreso_total * 0.30
+    limite_ahorros = ingreso_total * 0.20
+
+    gastos_fijos_neto = total_gastos_fijos
+    gastos_variables_neto = total_gastos_variables
+    ahorros_neto = total_ahorro_inversion
+
+    disponible_gastos_fijos = limite_gastos_fijos - total_gastos_fijos
+    disponible_gastos_variables = limite_gastos_variables - total_gastos_variables
+    disponible_ahorros = limite_ahorros - total_ahorro_inversion
+
+    # Formatear cada categoría con alerta si se excede
+    gastos_fijos_texto = (
+        f"🔸 *Gastos Fijos*: `{gastos_fijos_neto:.2f}` (Referencia: máx 50% = `{limite_gastos_fijos:.2f}`)\n"
+        f"   ➡️ *Disponible*: `{'⚠️ Excedido' if disponible_gastos_fijos < 0 else f'{disponible_gastos_fijos:.2f}'}` 📉\n\n"
+    )
+    gastos_variables_texto = (
+        f"🔸 *Gastos Variables*: `{gastos_variables_neto:.2f}` (Referencia: máx 30% = `{limite_gastos_variables:.2f}`)\n"
+        f"   ➡️ *Disponible*: `{'⚠️ Excedido' if disponible_gastos_variables < 0 else f'{disponible_gastos_variables:.2f}'}` 📉\n\n"
+    )
+    ahorros_texto = (
+        f"🔸 *Ahorros*: `{ahorros_neto:.2f}` (Referencia: mín 20% = `{limite_ahorros:.2f}`)\n"
+        f"   ➡️ *Disponible*: `{'⚠️ Excedido' if disponible_ahorros < 0 else f'{disponible_ahorros:.2f}'}` 💹\n\n"
+    )
+
     if user_data:
-        await context.bot.send_message(chat_id,
-            f"Este es tu desglose financiero actual:\n"
-            f"Ingreso: {user_data['ingreso']:.2f}\n"
-            f"Gastos fijos: {user_data['gastos_fijos']:.2f}\n"
-            f"Gastos variables: {user_data['gastos_variables']:.2f}\n"
-            f"Ahorros: {user_data['ahorros']:.2f}"
+        await context.bot.send_message(
+            chat_id,
+            f"💰 *Desglose Financiero Actual (Referencia 50/30/20)* 💰\n\n"
+            f"🔹 *Ingreso Total*: `{ingreso_total:.2f} 💵`\n\n"
+            f"{gastos_fijos_texto}{gastos_variables_texto}{ahorros_texto}"
+            f"📊 *Resumen General*: ¡Revisa tus gastos y ahorros! Asegúrate de alinearte con la referencia 50/30/20 para mantener tus finanzas en orden."
         )
     else:
         await context.bot.send_message(chat_id, "Aún no has registrado ningún ingreso. Usa /start para comenzar.")
@@ -154,9 +203,43 @@ async def handle_descripcion(update: Update, context: ContextTypes.DEFAULT_TYPE)
     del context.user_data['categoria']
     del context.user_data['monto']
 
+
+
+async def send_reminders(app):
+    async with app:
+        users = collection.find({})
+        for user in users:
+            try:
+                user_id = user["user_id"]
+                await app.bot.send_message(user_id, "¡Recuerda registrar tus ingresos y gastos para mantener tu control financiero!")
+            except Exception as e:
+                print(f"Error al enviar mensaje a {user_id}: {e}")
+
+def schedule_notifications(app):
+    scheduler = BackgroundScheduler()
+    
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    def send_task():
+        asyncio.run_coroutine_threadsafe(send_reminders(app), loop)
+
+    scheduler.add_job(
+        send_task,
+        'interval',
+        hours=8
+    )
+    scheduler.start()   
+
+
 def main():
     TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
     app = ApplicationBuilder().token(TOKEN).build()
+
+    schedule_notifications(app)
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
