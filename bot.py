@@ -61,7 +61,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text("Por favor, selecciona una categoría.", reply_markup=reply_markup)
     else:
-        await update.message.reply_text("Por favor, selecciona una opción del menú.")
+        if context.user_data.get("step") == "get_income":
+            await get_income(update, context)
+        else:
+            await update.message.reply_text("Por favor, selecciona una opción del menú.")
 
 async def get_income(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
