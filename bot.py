@@ -1,12 +1,13 @@
 from pymongo import MongoClient
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes
-from datetime import datetime
+from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 import asyncio
 import os
 
-client = MongoClient("mongodb://localhost:27017/")
+clave = os.getenv("CLAVE")
+client = MongoClient(f"mongodb+srv://botpaylog:{clave}@cluster0.u6rqw.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
 db = client["paylog"]
 collection = db["users"]
 collection_reg = db["registro"]
@@ -22,7 +23,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     reply_markup = get_reply_keyboard()
     
     await update.message.reply_text(
-        "Hola! Soy tu bot de finanzas 50/30/20. ¿Qué deseas hacer?",
+        "Hola! Soy tu bot de finanzas. ¿Qué deseas hacer?",
         reply_markup=reply_markup
     )
 
@@ -34,13 +35,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     if step == 'get_income':
         await get_income(update, context)
+    if step == 'set_income':
+        await set_income(update, context)
     elif step == 'get_monto':
         await handle_monto(update, context)
     elif step == 'get_descripcion':
         await handle_descripcion(update, context)
     elif text == 'Ingresar Ingreso':
-        await update.message.reply_text("Por favor, ingresa tu ingreso mensual.")
-        context.user_data['step'] = "get_income"
+        keyboard = [
+            [InlineKeyboardButton("Quincenal", callback_data='q2')],
+            [InlineKeyboardButton("Mensual", callback_data='m1')],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text("Por favor, ingresa tu ingreso mensual o quincenal.", reply_markup=reply_markup)
     elif text == 'Ver Resumen':
         await get_summary(update.message.chat.id, context)
     elif text == 'Ingresar gastos':
@@ -57,9 +64,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text("Por favor, selecciona una opción del menú.")
 
 async def get_income(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        await query.answer()
+
+        periodo = query.data
+        context.user_data["periodo"] = periodo
+
+        msj_context = f"Ingresa el monto quincenal: " if periodo == "q2" else f"Ingresa el monto mensual: "
+
+        if periodo in ['q2', 'm1']:
+            await context.bot.send_message(query.message.chat.id, msj_context)
+            context.user_data['step'] = "set_income"
+
+async def set_income(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         ingreso = float(update.message.text)
         context.user_data["ingreso"] = ingreso
+        periodo = context.user_data.get('periodo')
 
         necesidades = ingreso * 0.5
         deseos = ingreso * 0.3
@@ -69,6 +90,7 @@ async def get_income(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             {"user_id": update.effective_user.id},
             {
                 "$set": {
+                    "periodo": "quincenal" if periodo == "q2" else "mensual",
                     "ingreso": ingreso,
                     "gastos_fijos": necesidades,
                     "gastos_variables": deseos,
@@ -91,7 +113,23 @@ async def get_income(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 async def get_summary(chat_id, context):
     user_data = collection.find_one({'user_id': chat_id})
-    user_data_registro = collection_reg.find({'user_id': chat_id})
+    user_periodo = user_data.get('periodo')
+    fecha_actual = datetime.now()
+
+    if user_periodo == 'mensual':
+        fecha_inicio = fecha_actual.replace(day=1)  # Primer día del mes actual
+    elif user_periodo == 'quincenal':
+        if fecha_actual.day <= 15:  # Primera quincena
+            fecha_inicio = fecha_actual.replace(day=1)
+        else:  # Segunda quincena
+            fecha_inicio = fecha_actual.replace(day=16)
+    fecha_fin = fecha_actual  # Día actual como fin del rango
+
+    user_data_registro = collection_reg.find({'user_id': chat_id,
+                                              'fecha':{
+                                                '$gte': fecha_inicio.strftime('%Y-%m-%d'),  # Desde fecha_inicio
+                                                '$lte': fecha_fin.strftime('%Y-%m-%d')  # Hasta fecha_fin
+                                              }})
 
     total_ingreso = 0
     total_ahorro_inversion = 0
@@ -127,23 +165,23 @@ async def get_summary(chat_id, context):
 
     # Formatear cada categoría con alerta si se excede
     gastos_fijos_texto = (
-        f"🔸 *Gastos Fijos*: `{gastos_fijos_neto:.2f}` (Referencia: máx 50% = `{limite_gastos_fijos:.2f}`)\n"
-        f"   ➡️ *Disponible*: `{'⚠️ Excedido' if disponible_gastos_fijos < 0 else f'{disponible_gastos_fijos:.2f}'}` 📉\n\n"
+        f"🔸 Gastos Fijos: {gastos_fijos_neto:.2f} (Referencia: máx 50% = {limite_gastos_fijos:.2f})\n"
+        f"   ➡️ Disponible: {'⚠️ Excedido' if disponible_gastos_fijos < 0 else f'{disponible_gastos_fijos:.2f}'} 📉\n\n"
     )
     gastos_variables_texto = (
-        f"🔸 *Gastos Variables*: `{gastos_variables_neto:.2f}` (Referencia: máx 30% = `{limite_gastos_variables:.2f}`)\n"
-        f"   ➡️ *Disponible*: `{'⚠️ Excedido' if disponible_gastos_variables < 0 else f'{disponible_gastos_variables:.2f}'}` 📉\n\n"
+        f"🔸 Gastos Variables: {gastos_variables_neto:.2f} (Referencia: máx 30% = {limite_gastos_variables:.2f})\n"
+        f"   ➡️ Disponible: {'⚠️ Excedido' if disponible_gastos_variables < 0 else f'{disponible_gastos_variables:.2f}'} 📉\n\n"
     )
     ahorros_texto = (
-        f"🔸 *Ahorros*: `{ahorros_neto:.2f}` (Referencia: mín 20% = `{limite_ahorros:.2f}`)\n"
-        f"   ➡️ *Disponible*: `{'⚠️ Excedido' if disponible_ahorros < 0 else f'{disponible_ahorros:.2f}'}` 💹\n\n"
+        f"🔸 Ahorros: {ahorros_neto:.2f} (Referencia: mín 20% = {limite_ahorros:.2f})\n"
+        f"   ➡️ Disponible: {'⚠️ Excedido' if disponible_ahorros < 0 else f'{disponible_ahorros:.2f}'} 💹\n\n"
     )
 
     if user_data:
         await context.bot.send_message(
             chat_id,
             f"💰 *Desglose Financiero Actual (Referencia 50/30/20)* 💰\n\n"
-            f"🔹 *Ingreso Total*: `{ingreso_total:.2f} 💵`\n\n"
+            f"🔹 Ingreso Total: {ingreso_total:.2f} 💵\n\n"
             f"{gastos_fijos_texto}{gastos_variables_texto}{ahorros_texto}"
             f"📊 *Resumen General*: ¡Revisa tus gastos y ahorros! Asegúrate de alinearte con la referencia 50/30/20 para mantener tus finanzas en orden."
         )
@@ -243,7 +281,8 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.add_handler(CallbackQueryHandler(insert_expenses_or_income))
+    app.add_handler(CallbackQueryHandler(insert_expenses_or_income, pattern='^(gasto_fijo|gasto_variable|ahorro_o_inversion|ingreso)$'))
+    app.add_handler(CallbackQueryHandler(get_income, pattern='^(q2|m1)$'))
     
     app.run_polling()
 
