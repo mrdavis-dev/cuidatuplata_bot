@@ -2,6 +2,8 @@ from pymongo import MongoClient
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes
 from datetime import datetime, timedelta
+from apscheduler.schedulers.background import BackgroundScheduler
+import asyncio
 import os
 
 clave = os.getenv("CLAVE")
@@ -239,9 +241,43 @@ async def handle_descripcion(update: Update, context: ContextTypes.DEFAULT_TYPE)
     del context.user_data['categoria']
     del context.user_data['monto']
 
+
+
+async def send_reminders(app):
+    async with app:
+        users = collection.find({})
+        for user in users:
+            try:
+                user_id = user["user_id"]
+                await app.bot.send_message(user_id, "¡Recuerda registrar tus ingresos y gastos para mantener tu control financiero!")
+            except Exception as e:
+                print(f"Error al enviar mensaje a {user_id}: {e}")
+
+def schedule_notifications(app):
+    scheduler = BackgroundScheduler()
+    
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    def send_task():
+        asyncio.run_coroutine_threadsafe(send_reminders(app), loop)
+
+    scheduler.add_job(
+        send_task,
+        'interval',
+        hours=8
+    )
+    scheduler.start()   
+
+
 def main():
     TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
     app = ApplicationBuilder().token(TOKEN).build()
+
+    schedule_notifications(app)
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
