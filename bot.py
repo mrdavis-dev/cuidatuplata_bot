@@ -279,12 +279,7 @@ def schedule_notifications(app):
 def main():
     TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
     app = ApplicationBuilder().token(TOKEN).build()
-
-    webhook_url = f"https://{os.getenv('RENDER_EXTERNAL_URL')}/"
-
-    port = int(os.getenv("PORT", 8443))
-
-    app.bot.set_webhook(url=webhook_url)
+    p = int(os.getenv("PORT", 8443))
 
     schedule_notifications(app)
 
@@ -293,7 +288,12 @@ def main():
     app.add_handler(CallbackQueryHandler(insert_expenses_or_income, pattern='^(gasto_fijo|gasto_variable|ahorro_o_inversion|ingreso)$'))
     app.add_handler(CallbackQueryHandler(get_income, pattern='^(q2|m1)$'))
     
-    app.run_webhook(listen="0.0.0.0", port=port, url_path="")
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=p,
+        secret_token=TOKEN,
+        webhook_url="https://paylog532.onrender.com"
+    )
 
 if __name__ == "__main__":
     main()
