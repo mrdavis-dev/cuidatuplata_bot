@@ -9,7 +9,7 @@ import os
 
 clave = os.environ.get('CLAVE')
 ca = certifi.where()
-client = MongoClient(f"mongodb+srv://botpaylog:{clave}@cluster0.u6rqw.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0", tlsCAFile=ca)
+client = MongoClient(f"mongodb+srv://botpaylog:{clave}@cluster0.u6rqw.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&&tlsAllowInvalidCertificates=true", tlsCAFile=ca)
 db = client["paylog"]
 collection = db["users"]
 collection_reg = db["registro"]
