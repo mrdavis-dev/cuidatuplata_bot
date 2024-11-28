@@ -288,6 +288,10 @@ def schedule_notifications(app):
     )
     scheduler.start()   
 
+async def set_webhook_async():
+    webhook_url = f"https://paylog532.onrender.com/webhook"  # Establece el webhook en Telegram
+    await application.bot.set_webhook(url=webhook_url)
+
 
 def main():
     schedule_notifications(application)
@@ -299,6 +303,6 @@ def main():
 
 if __name__ == "__main__":
 
-    webhook_url = f"https://paylog532.onrender.com/webhook" # Establece el webhook en Telegram
-    application.bot.set_webhook(url=webhook_url)  # Establecer el webhook antes de iniciar el servidor Flask
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(set_webhook_async())  # Establecer el webhook correctamente
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000))) # Iniciar el servidor Flask
