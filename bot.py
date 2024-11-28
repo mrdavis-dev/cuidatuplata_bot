@@ -3,11 +3,13 @@ from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKe
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes
 from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
+import certifi
 import asyncio
 import os
 
 clave = os.getenv("CLAVE")
-client = MongoClient(f"mongodb+srv://botpaylog:{clave}@cluster0.u6rqw.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
+ca = certifi.where()
+client = MongoClient(f"mongodb+srv://botpaylog:{clave}@cluster0.u6rqw.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0", tlsCAFile=ca)
 db = client["paylog"]
 collection = db["users"]
 collection_reg = db["registro"]
