@@ -72,14 +72,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await update.message.reply_text("Por favor, selecciona una opción del menú.")
 
 
-@app.route('/webhook', methods=['POST'])
-async def webhook():
-    print(request.json)
-    update = Update.de_json(request.json, application.bot)
-    await application.update_queue.put(update)
-    return "ok"
-
-
 async def get_income(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
         await query.answer()
@@ -260,17 +252,17 @@ async def handle_descripcion(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 
-async def send_reminders(app):
-    async with app:
+async def send_reminders(application):
+    async with application:
         users = collection.find({})
         for user in users:
             try:
                 user_id = user["user_id"]
-                await app.bot.send_message(user_id, "¡Recuerda registrar tus ingresos y gastos para mantener tu control financiero!")
+                await application.bot.send_message(user_id, "¡Recuerda registrar tus ingresos y gastos para mantener tu control financiero!")
             except Exception as e:
                 print(f"Error al enviar mensaje a {user_id}: {e}")
 
-def schedule_notifications(app):
+def schedule_notifications(application):
     scheduler = BackgroundScheduler()
     
     try:
@@ -280,7 +272,7 @@ def schedule_notifications(app):
         asyncio.set_event_loop(loop)
 
     def send_task():
-        asyncio.run_coroutine_threadsafe(send_reminders(app), loop)
+        asyncio.run_coroutine_threadsafe(send_reminders(application), loop)
 
     scheduler.add_job(
         send_task,
@@ -289,22 +281,26 @@ def schedule_notifications(app):
     )
     scheduler.start()   
 
+# Agrega manejadores
+application.add_handler(CommandHandler("start", start))
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+application.add_handler(CallbackQueryHandler(insert_expenses_or_income, pattern='^(gasto_fijo|gasto_variable|ahorro_o_inversion|ingreso)$'))
+application.add_handler(CallbackQueryHandler(get_income, pattern='^(q2|m1)$'))
+
+# Webhook endpoint
+@app.route('/webhook', methods=['POST'])
+async def webhook():
+    update = Update.de_json(request.json, application.bot)
+    await application.update_queue.put(update)
+    return "ok"
+
+# Establecer webhook
 async def set_webhook_async():
-    webhook_url = f"https://paylog532.onrender.com/webhook"  # Establece el webhook en Telegram
+    webhook_url = "https://<TU_DOMINIO>/webhook"  # Cambia por tu dominio
     await application.bot.set_webhook(url=webhook_url)
 
-
-def main():
-    schedule_notifications(application)
-
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    application.add_handler(CallbackQueryHandler(insert_expenses_or_income, pattern='^(gasto_fijo|gasto_variable|ahorro_o_inversion|ingreso)$'))
-    application.add_handler(CallbackQueryHandler(get_income, pattern='^(q2|m1)$'))
-
 if __name__ == "__main__":
-
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(set_webhook_async())  # Establecer el webhook correctamente
-    app.run(debug=True)
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000))) # Iniciar el servidor Flask
+    loop.run_until_complete(set_webhook_async())  # Configura el webhook
+
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))  # Inicia Flask
