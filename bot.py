@@ -14,6 +14,8 @@ client = MongoClient(f"mongodb+srv://botpaylog:{clave}@cluster0.u6rqw.mongodb.ne
 db = client["paylog"]
 collection = db["users"]
 collection_reg = db["registro"]
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+application = ApplicationBuilder().token(TOKEN).build()
 
 def get_reply_keyboard():
     return ReplyKeyboardMarkup(
@@ -288,10 +290,6 @@ def schedule_notifications(app):
 
 
 def main():
-    TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-    global application
-    application = ApplicationBuilder().token(TOKEN).build()
-    
     schedule_notifications(application)
 
     app.add_handler(CommandHandler("start", start))
