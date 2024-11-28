@@ -280,6 +280,13 @@ def main():
     TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
     app = ApplicationBuilder().token(TOKEN).build()
 
+    webhook_url = f"https://{os.getenv('RENDER_EXTERNAL_URL')}/"
+
+    # El puerto asignado por Render (generalmente 8443)
+    port = int(os.getenv("PORT", 8443))
+
+    app.bot.set_webhook(url=webhook_url)
+    
     schedule_notifications(app)
 
     app.add_handler(CommandHandler("start", start))
@@ -287,7 +294,7 @@ def main():
     app.add_handler(CallbackQueryHandler(insert_expenses_or_income, pattern='^(gasto_fijo|gasto_variable|ahorro_o_inversion|ingreso)$'))
     app.add_handler(CallbackQueryHandler(get_income, pattern='^(q2|m1)$'))
     
-    app.run_polling()
+    app.run_webhook(listen="0.0.0.0", port=port, url_path="")
 
 if __name__ == "__main__":
     main()
