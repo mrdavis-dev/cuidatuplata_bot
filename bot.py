@@ -293,7 +293,7 @@ def main():
     app.run_webhook(
         listen='0.0.0.0',
         port=8000,
-        secret_token="7663112689:AAFknuqnaQlrBBr8RDMgJ1keDuXeErlJ7J0",
+        secret_token="AAEmztxprgX1Ldd7gAvpyOMosbzj3zYBHmo",
         webhook_url=app_url
         # webhook_url='https://e520-190-219-103-156.ngrok-free.app'
     )
