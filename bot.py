@@ -74,6 +74,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 @app.route('/webhook', methods=['POST'])
 async def webhook():
+    print(request.json)
     update = Update.de_json(request.json, application.bot)
     await application.update_queue.put(update)
     return "ok"
