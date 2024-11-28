@@ -282,11 +282,10 @@ def main():
 
     webhook_url = f"https://{os.getenv('RENDER_EXTERNAL_URL')}/"
 
-    # El puerto asignado por Render (generalmente 8443)
     port = int(os.getenv("PORT", 8443))
 
     app.bot.set_webhook(url=webhook_url)
-    
+
     schedule_notifications(app)
 
     app.add_handler(CommandHandler("start", start))
