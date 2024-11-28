@@ -5,6 +5,9 @@ from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 import asyncio
 import os
+from flask import Flask, request
+
+app = Flask(__name__)
 
 clave = os.getenv("CLAVE")
 client = MongoClient(f"mongodb+srv://botpaylog:{clave}@cluster0.u6rqw.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
@@ -65,6 +68,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await get_income(update, context)
         else:
             await update.message.reply_text("Por favor, selecciona una opción del menú.")
+
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    update = Update.de_json(request.json, application.bot)
+    application.update_queue.put(update)
+    return "ok"
+
 
 async def get_income(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
@@ -278,22 +289,18 @@ def schedule_notifications(app):
 
 def main():
     TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-    app = ApplicationBuilder().token(TOKEN).build()
-    p = int(os.getenv("PORT", 8443))
-
-    schedule_notifications(app)
+    global application
+    application = ApplicationBuilder().token(TOKEN).build()
+    
+    schedule_notifications(application)
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(insert_expenses_or_income, pattern='^(gasto_fijo|gasto_variable|ahorro_o_inversion|ingreso)$'))
     app.add_handler(CallbackQueryHandler(get_income, pattern='^(q2|m1)$'))
-    
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=p,
-        secret_token=TOKEN,
-        webhook_url="https://paylog532.onrender.com"
-    )
 
 if __name__ == "__main__":
-    main()
+
+    webhook_url = f"https://paylog532.onrender.com/webhook" # Establece el webhook en Telegram
+    application.bot.set_webhook(url=webhook_url)  # Establecer el webhook antes de iniciar el servidor Flask
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000))) # Iniciar el servidor Flask
