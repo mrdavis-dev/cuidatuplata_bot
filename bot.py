@@ -295,7 +295,7 @@ def main():
         port=8000,
         secret_token="AAFknuqnaQlrBBr8RDMgJ1keDuXeErlJ7J0",
         webhook_url=app_url
-        # ,webhook_url='ngrok_url'
+        # webhook_url='https://e520-190-219-103-156.ngrok-free.app'
     )
 
 if __name__ == "__main__":
