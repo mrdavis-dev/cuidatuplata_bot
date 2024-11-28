@@ -5,23 +5,12 @@ from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 import asyncio
 import os
-from flask import Flask, request
-
-app = Flask(__name__)
 
 clave = os.getenv("CLAVE")
 client = MongoClient(f"mongodb+srv://botpaylog:{clave}@cluster0.u6rqw.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
 db = client["paylog"]
 collection = db["users"]
 collection_reg = db["registro"]
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-application = ApplicationBuilder().token(TOKEN).build()
-
-try:
-    client.server_info()  # Verifica conexión con MongoDB
-except Exception as e:
-    print(f"Error conectando a MongoDB: {e}")
-    exit(1)
 
 
 def get_reply_keyboard():
@@ -77,19 +66,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await get_income(update, context)
         else:
             await update.message.reply_text("Por favor, selecciona una opción del menú.")
-
-
-@app.route('/webhook', methods=['POST'])
-async def webhook():
-    try:
-        print(f"Datos recibidos: {request.json}")  # Depurar payload entrante
-        update = Update.de_json(request.json, application.bot)
-        await application.update_queue.put(update)
-        return "OK", 200
-    except Exception as e:
-        print(f"Error procesando webhook: {e}")
-        return "Internal Server Error", 500
-
 
 
 async def get_income(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -272,17 +248,17 @@ async def handle_descripcion(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 
-async def send_reminders(application):
-    async with application:
+async def send_reminders(app):
+    async with app:
         users = collection.find({})
         for user in users:
             try:
                 user_id = user["user_id"]
-                await application.bot.send_message(user_id, "¡Recuerda registrar tus ingresos o gastos para mantener tu control financiero!")
+                await app.bot.send_message(user_id, "¡Recuerda registrar tus ingresos o gastos para mantener tu control financiero!")
             except Exception as e:
                 print(f"Error al enviar mensaje a {user_id}: {e}")
 
-def schedule_notifications(application):
+def schedule_notifications(app):
     scheduler = BackgroundScheduler()
     
     try:
@@ -292,7 +268,7 @@ def schedule_notifications(application):
         asyncio.set_event_loop(loop)
 
     def send_task():
-        asyncio.run_coroutine_threadsafe(send_reminders(application), loop)
+        asyncio.run_coroutine_threadsafe(send_reminders(app), loop)
 
     scheduler.add_job(
         send_task,
@@ -301,22 +277,19 @@ def schedule_notifications(application):
     )
     scheduler.start()   
 
-async def set_webhook_async():
-    webhook_url = f"https://paylog532.onrender.com/webhook"  # Establece el webhook en Telegram
-    await application.bot.set_webhook(url=webhook_url)
-
 
 def main():
-    schedule_notifications(application)
+    TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+    app = ApplicationBuilder().token(TOKEN).build()
 
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    application.add_handler(CallbackQueryHandler(insert_expenses_or_income, pattern='^(gasto_fijo|gasto_variable|ahorro_o_inversion|ingreso)$'))
-    application.add_handler(CallbackQueryHandler(get_income, pattern='^(q2|m1)$'))
+    schedule_notifications(app)
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(CallbackQueryHandler(insert_expenses_or_income, pattern='^(gasto_fijo|gasto_variable|ahorro_o_inversion|ingreso)$'))
+    app.add_handler(CallbackQueryHandler(get_income, pattern='^(q2|m1)$'))
+    
+    app.run_polling()
 
 if __name__ == "__main__":
-
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(set_webhook_async())  # Establecer el webhook correctamente
-    app.run(debug=True)
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000))) # Iniciar el servidor Flask
+    main()
