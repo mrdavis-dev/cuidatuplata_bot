@@ -297,10 +297,10 @@ async def set_webhook_async():
 def main():
     schedule_notifications(application)
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.add_handler(CallbackQueryHandler(insert_expenses_or_income, pattern='^(gasto_fijo|gasto_variable|ahorro_o_inversion|ingreso)$'))
-    app.add_handler(CallbackQueryHandler(get_income, pattern='^(q2|m1)$'))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(CallbackQueryHandler(insert_expenses_or_income, pattern='^(gasto_fijo|gasto_variable|ahorro_o_inversion|ingreso)$'))
+    application.add_handler(CallbackQueryHandler(get_income, pattern='^(q2|m1)$'))
 
 if __name__ == "__main__":
 
