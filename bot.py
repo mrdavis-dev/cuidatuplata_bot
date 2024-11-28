@@ -279,8 +279,9 @@ def schedule_notifications(app):
 
 
 def main():
-    TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-    app = ApplicationBuilder().token(TOKEN).build()
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    app = ApplicationBuilder().token(token).build()
+    app_url = os.getenv('RENDER_EXTERNAL_URL')
 
     schedule_notifications(app)
 
@@ -289,7 +290,13 @@ def main():
     app.add_handler(CallbackQueryHandler(insert_expenses_or_income, pattern='^(gasto_fijo|gasto_variable|ahorro_o_inversion|ingreso)$'))
     app.add_handler(CallbackQueryHandler(get_income, pattern='^(q2|m1)$'))
     
-    app.run_polling()
+    app.run_webhook(
+        listen='0.0.0.0',
+        port=8000,
+        secret_token=token,
+        webhook_url=app_url
+        # ,webhook_url='ngrok_url'
+    )
 
 if __name__ == "__main__":
     main()
