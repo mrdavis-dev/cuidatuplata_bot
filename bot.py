@@ -17,6 +17,13 @@ collection_reg = db["registro"]
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 application = ApplicationBuilder().token(TOKEN).build()
 
+try:
+    client.server_info()  # Verifica conexión con MongoDB
+except Exception as e:
+    print(f"Error conectando a MongoDB: {e}")
+    exit(1)
+
+
 def get_reply_keyboard():
     return ReplyKeyboardMarkup(
         [['Ingresar Ingreso', 'Ver Resumen', 'Ingresar gastos']],
