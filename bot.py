@@ -74,10 +74,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 @app.route('/webhook', methods=['POST'])
 async def webhook():
-    print(request.json)
-    update = Update.de_json(request.json, application.bot)
-    await application.update_queue.put(update)
-    return "ok"
+    try:
+        print(f"Datos recibidos: {request.json}")  # Depurar payload entrante
+        update = Update.de_json(request.json, application.bot)
+        await application.update_queue.put(update)
+        return "OK", 200
+    except Exception as e:
+        print(f"Error procesando webhook: {e}")
+        return "Internal Server Error", 500
+
 
 
 async def get_income(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
