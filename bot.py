@@ -52,7 +52,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     elif text == 'Ver Resumen':
         await get_summary(update.message.chat.id, context)
     elif text == 'Ingresar gastos':
-        # Crear botones inline para las categorías de gastos
         keyboard = [
             [InlineKeyboardButton("🎯 Gasto fijo", callback_data='gasto_fijo')],
             [InlineKeyboardButton("🎲 Gastos variables", callback_data='gasto_variable')],
@@ -87,111 +86,30 @@ async def set_income(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         context.user_data["ingreso"] = ingreso
         periodo = context.user_data.get('periodo')
 
-        necesidades = ingreso * 0.5
-        deseos = ingreso * 0.3
-        ahorros = ingreso * 0.2
-
         collection.update_one(
             {"user_id": update.effective_user.id},
             {
                 "$set": {
                     "periodo": "quincenal" if periodo == "q2" else "mensual",
-                    "ingreso": ingreso,
-                    "gastos_fijos": necesidades,
-                    "gastos_variables": deseos,
-                    "ahorros": ahorros
+                    "ingreso": ingreso
                 }
             },
             upsert=True
         )
 
         await update.message.reply_text(
-            f"¡Datos guardados! Según el método 50/30/20:\n"
-            f"Gastos fijos: {necesidades:.2f}\n"
-            f"Gastos variables: {deseos:.2f}\n"
-            f"Ahorros: {ahorros:.2f}"
+            f"¡Datos guardados!\n"
         )
         
         context.user_data['step'] = None
     except ValueError:
-        await update.message.reply_text("Por favor, ingresa un valor numérico para tu ingreso mensual.")
+        await update.message.reply_text("Por favor, ingresa un valor numérico para tu ingreso mensual o quincenal.")
 
 async def get_summary(chat_id, context):
     user_data = collection.find_one({'user_id': chat_id})
     user_periodo = user_data.get('periodo')
     fecha_actual = datetime.now()
 
-    if user_periodo == 'mensual':
-        fecha_inicio = fecha_actual.replace(day=1)  # Primer día del mes actual
-    elif user_periodo == 'quincenal':
-        if fecha_actual.day <= 15:  # Primera quincena
-            fecha_inicio = fecha_actual.replace(day=1)
-        else:  # Segunda quincena
-            fecha_inicio = fecha_actual.replace(day=16)
-    fecha_fin = fecha_actual  # Día actual como fin del rango
-
-    user_data_registro = collection_reg.find({'user_id': chat_id,
-                                              'fecha':{
-                                                '$gte': fecha_inicio.strftime('%Y-%m-%d'),  # Desde fecha_inicio
-                                                '$lte': fecha_fin.strftime('%Y-%m-%d')  # Hasta fecha_fin
-                                              }})
-
-    total_ingreso = 0
-    total_ahorro_inversion = 0
-    total_gastos_fijos = 0
-    total_gastos_variables = 0
-
-    for registro in user_data_registro:
-        categoria = registro.get('categoria')
-        monto = registro.get('monto', 0)
-
-        if categoria == 'ingreso':
-            total_ingreso =+ monto
-        elif categoria == 'ahorro_o_inversion':
-            total_ahorro_inversion += monto
-        elif categoria == 'gasto_fijo':
-            total_gastos_fijos += monto
-        elif categoria == 'gasto_variable':
-            total_gastos_variables += monto
-    
-    ingreso_total = user_data.get('ingreso', 0) + total_ingreso
-
-    limite_gastos_fijos = ingreso_total * 0.50
-    limite_gastos_variables = ingreso_total * 0.30
-    limite_ahorros = ingreso_total * 0.20
-
-    gastos_fijos_neto = total_gastos_fijos
-    gastos_variables_neto = total_gastos_variables
-    ahorros_neto = total_ahorro_inversion
-
-    disponible_gastos_fijos = limite_gastos_fijos - total_gastos_fijos
-    disponible_gastos_variables = limite_gastos_variables - total_gastos_variables
-    disponible_ahorros = limite_ahorros - total_ahorro_inversion
-
-    # Formatear cada categoría con alerta si se excede
-    gastos_fijos_texto = (
-        f"🔸 Gastos Fijos: {gastos_fijos_neto:.2f} (Referencia: máx 50% = {limite_gastos_fijos:.2f})\n"
-        f"   ➡️ Disponible: {'⚠️ Excedido' if disponible_gastos_fijos < 0 else f'{disponible_gastos_fijos:.2f}'} 📉\n\n"
-    )
-    gastos_variables_texto = (
-        f"🔸 Gastos Variables: {gastos_variables_neto:.2f} (Referencia: máx 30% = {limite_gastos_variables:.2f})\n"
-        f"   ➡️ Disponible: {'⚠️ Excedido' if disponible_gastos_variables < 0 else f'{disponible_gastos_variables:.2f}'} 📉\n\n"
-    )
-    ahorros_texto = (
-        f"🔸 Ahorros: {ahorros_neto:.2f} (Referencia: mín 20% = {limite_ahorros:.2f})\n"
-        f"   ➡️ Disponible: {'⚠️ Excedido' if disponible_ahorros < 0 else f'{disponible_ahorros:.2f}'} 💹\n\n"
-    )
-
-    if user_data:
-        await context.bot.send_message(
-            chat_id,
-            f"💰 *Desglose Financiero Actual (Referencia 50/30/20)* 💰\n\n"
-            f"🔹 Ingreso Total: {ingreso_total:.2f} 💵\n\n"
-            f"{gastos_fijos_texto}{gastos_variables_texto}{ahorros_texto}"
-            f"📊 *Resumen General*: ¡Revisa tus gastos y ahorros! Asegúrate de alinearte con la referencia 50/30/20 para mantener tus finanzas en orden."
-        )
-    else:
-        await context.bot.send_message(chat_id, "Aún no has registrado ningún ingreso. Usa /start para comenzar.")
 
 async def insert_expenses_or_income(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
