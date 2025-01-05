@@ -2,12 +2,15 @@ from pymongo import MongoClient
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes
 from datetime import datetime, timedelta
+from pytz import timezone
 from apscheduler.schedulers.background import BackgroundScheduler
+import google.generativeai as genai
 import asyncio
 import os
 
 clave = os.environ.get('CLAVE')
-client = MongoClient(f"mongodb+srv://botpaylog:{clave}@cluster0.u6rqw.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsAllowInvalidCertificates=true")
+# client = MongoClient(f"mongodb+srv://botpaylog:{clave}@cluster0.u6rqw.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsAllowInvalidCertificates=true")
+client = MongoClient("mongodb://localhost:27017/")
 db = client["paylog"]
 collection = db["users"]
 collection_reg = db["registro"]
@@ -106,9 +109,73 @@ async def set_income(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await update.message.reply_text("Por favor, ingresa un valor numérico para tu ingreso mensual o quincenal.")
 
 async def get_summary(chat_id, context):
-    user_data = collection.find_one({'user_id': chat_id})
-    user_periodo = user_data.get('periodo')
+    user = collection.find_one({'user_id': chat_id})
+    if not user:
+        # print("Usuario no encontrado en la base de datos.")
+        return "Usuario no encontrado."
+    
+    # print(f"Usuario encontrado: {user}")  # Verificar datos del usuario
+    
+    user_periodo = user.get('periodo')  # "mensual" o "quincenal"
     fecha_actual = datetime.now()
+    # print(f"Periodo del usuario: {user_periodo}")
+    # print(f"Fecha actual: {fecha_actual}")
+
+    # Define las fechas de inicio y fin según el periodo
+    if user_periodo == "mensual":
+        inicio = datetime(fecha_actual.year, fecha_actual.month, 1)
+        fin = fecha_actual  # Hasta hoy
+        print(f"Periodo mensual: Inicio: {inicio}, Fin: {fin}")
+    elif user_periodo == "quincenal":
+        dia_actual = fecha_actual.day
+        if dia_actual <= 15:  # Primera quincena
+            inicio = datetime(fecha_actual.year, fecha_actual.month, 1)
+        else:  # Segunda quincena
+            inicio = datetime(fecha_actual.year, fecha_actual.month, 16)
+        fin = fecha_actual  # Hasta hoy
+        print(f"Periodo quincenal: Inicio: {inicio}, Fin: {fin}")
+    else:
+        print("Periodo no válido configurado en el usuario.")
+        return "Periodo no válido. Configure 'mensual' o 'quincenal'."
+
+    # Filtrar registros por fecha
+    registros = collection_reg.find({
+        'user_id': chat_id,
+        'fecha': {
+            '$gte': inicio,
+            '$lte': fin
+        }
+    })
+
+    registros = list(registros)  # Convertir a lista para depuración
+    # print(f"Registros encontrados: {registros}")  # Verificar los registros encontrados
+
+    # Formatea la respuesta
+    lista_registros = [f"{reg['descripcion']} - {reg['monto']} - {reg['fecha']}" for reg in registros]
+    if not lista_registros:
+        # print("No se encontraron registros en este periodo.")
+        return "No se encontraron registros en este periodo."
+
+    respuesta = "\n".join(lista_registros)
+    print(f"Respuesta generada:\n{respuesta}")  # Verificar la respuesta final
+
+    # funcion con IA
+    genai.configure(api_key="AIzaSyBC__t_3GCTPwpoMz-h147OEwdZVwX5gqU")
+    model = genai.GenerativeModel("gemini-1.5-flash")
+    prompt = f"""
+    A continuación se muestra un resumen de transacciones financieras del usuario. Por favor, genera un informe detallado y profesional que incluya:
+    1. Una introducción general sobre el periodo cubierto.
+    2. Un desglose de las transacciones agrupadas por categoría (si aplica).
+    3. Un análisis general que resuma el total gastado o ingresado.
+    4. Observaciones o recomendaciones basadas en los datos.
+
+    Resumen de transacciones:
+    {respuesta}
+
+    Genera el informe en un tono profesional y claro.
+    """
+    response = model.generate_content(prompt)
+    print(response.text)
 
 
 async def insert_expenses_or_income(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -143,11 +210,15 @@ async def handle_descripcion(update: Update, context: ContextTypes.DEFAULT_TYPE)
     monto = context.user_data.get('monto')
     
     message_date = update.message.date
-    formatted_date = message_date.strftime('%Y-%m-%d %H:%M:%S')
+    user_timezone = context.user_data.get('timezone', 'UTC')  # Default: UTC
+
+    # Convertir la fecha a la zona horaria del usuario
+    tz = timezone(user_timezone)
+    local_date = message_date.astimezone(tz)
     
     registro = {
         "user_id": update.effective_user.id,
-        "fecha": formatted_date,
+        "fecha": local_date,
         "categoria": categoria,
         "monto": monto,
         "descripcion": descripcion
@@ -211,9 +282,9 @@ def main():
     app.run_webhook(
         listen='0.0.0.0',
         port=8000,
-        secret_token="AAEmztxprgX1Ldd7gAvpyOMosbzj3zYBHmo",
-        webhook_url=app_url
-        # webhook_url='https://e520-190-219-103-156.ngrok-free.app'
+        secret_token="AAEhVYUgyOzFkxzdqkdE0-9pysEH8-y8ttg",
+        # webhook_url=app_url
+        webhook_url='https://0909-190-219-103-238.ngrok-free.app'
     )
 
 if __name__ == "__main__":
