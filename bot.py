@@ -1,16 +1,21 @@
 from pymongo import MongoClient
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes
-from datetime import datetime, timedelta
+from telegram.ext import ApplicationBuilder, ConversationHandler, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes
+from datetime import datetime, timezone
 from pytz import timezone
-from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.interval import IntervalTrigger
 import google.generativeai as genai
+import threading
 import asyncio
 import os
 
+ESPERANDO_FECHA = 1
+
 clave = os.environ.get('CLAVE')
-# client = MongoClient(f"mongodb+srv://botpaylog:{clave}@cluster0.u6rqw.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsAllowInvalidCertificates=true")
-client = MongoClient("mongodb://localhost:27017/")
+gemini_key = os.environ.get('GEMINI_KEY')
+client = MongoClient(f"mongodb://mongo:{clave}@roundhouse.proxy.rlwy.net:47036")
+# client = MongoClient("mongodb://localhost:27017/")
 db = client["paylog"]
 collection = db["users"]
 collection_reg = db["registro"]
@@ -18,16 +23,31 @@ collection_reg = db["registro"]
 
 def get_reply_keyboard():
     return ReplyKeyboardMarkup(
-        [['Ingresar Ingreso', 'Ver Resumen', 'Ingresar gastos']],
+        [['Ver Resumen', 'Ingresar']],
         one_time_keyboard=True,
         resize_keyboard=True
     )
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    reply_markup = get_reply_keyboard()
+    user_id = update.message.from_user.id
+    user_name = update.message.from_user.first_name
+
+    user_timezone = context.user_data.get('timezone', 'UTC')  # Default: UTC
+    # Convertir la fecha a la zona horaria del usuario
+    tz = timezone(user_timezone)
+    local_date = update.message.date.astimezone(tz)
     
+    existing_user = collection.find_one({"user_id": user_id})
+    if not existing_user:
+        collection.insert_one({
+            "user_id": user_id,
+            "name": user_name,
+            "created_at": local_date
+        })
+    reply_markup = get_reply_keyboard()
+
     await update.message.reply_text(
-        "Hola! Soy tu bot de finanzas. ¿Qué deseas hacer?",
+        f"Hola {user_name}! Soy tu bot de finanzas. ¿Qué deseas hacer?",
         reply_markup=reply_markup
     )
 
@@ -37,24 +57,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Verificamos el paso actual para determinar la acción
     step = context.user_data.get('step')
 
-    if step == 'get_income':
-        await get_income(update, context)
-    if step == 'set_income':
-        await set_income(update, context)
-    elif step == 'get_monto':
+    if step == 'get_monto':
         await handle_monto(update, context)
     elif step == 'get_descripcion':
         await handle_descripcion(update, context)
-    elif text == 'Ingresar Ingreso':
-        keyboard = [
-            [InlineKeyboardButton("Quincenal", callback_data='q2')],
-            [InlineKeyboardButton("Mensual", callback_data='m1')],
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text("Por favor, ingresa tu ingreso mensual o quincenal.", reply_markup=reply_markup)
     elif text == 'Ver Resumen':
-        await get_summary(update.message.chat.id, context)
-    elif text == 'Ingresar gastos':
+        await get_summary(update, context)
+    elif step == ESPERANDO_FECHA:  # Si está esperando una fecha, vamos al proceso de resumen
+        await process_summary(update, context)
+    elif text == 'Ingresar':
         keyboard = [
             [InlineKeyboardButton("🎯 Gasto fijo", callback_data='gasto_fijo')],
             [InlineKeyboardButton("🎲 Gastos variables", callback_data='gasto_variable')],
@@ -64,118 +75,68 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text("Por favor, selecciona una categoría.", reply_markup=reply_markup)
     else:
-        if context.user_data.get("step") == "get_income":
-            await get_income(update, context)
-        else:
-            await update.message.reply_text("Por favor, selecciona una opción del menú.")
+        await update.message.reply_text("Por favor, selecciona una opción del menú.")
 
 
-async def get_income(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        query = update.callback_query
-        await query.answer()
-
-        periodo = query.data
-        context.user_data["periodo"] = periodo
-
-        msj_context = f"Ingresa el monto quincenal: " if periodo == "q2" else f"Ingresa el monto mensual: "
-
-        if periodo in ['q2', 'm1']:
-            await context.bot.send_message(query.message.chat.id, msj_context)
-            context.user_data['step'] = "set_income"
-
-async def set_income(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    try:
-        ingreso = float(update.message.text)
-        context.user_data["ingreso"] = ingreso
-        periodo = context.user_data.get('periodo')
-
-        collection.update_one(
-            {"user_id": update.effective_user.id},
-            {
-                "$set": {
-                    "periodo": "quincenal" if periodo == "q2" else "mensual",
-                    "ingreso": ingreso
-                }
-            },
-            upsert=True
-        )
-
-        await update.message.reply_text(
-            f"¡Datos guardados!\n"
-        )
-        
-        context.user_data['step'] = None
-    except ValueError:
-        await update.message.reply_text("Por favor, ingresa un valor numérico para tu ingreso mensual o quincenal.")
-
-async def get_summary(chat_id, context):
+async def get_summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    chat_id = update.message.chat_id
     user = collection.find_one({'user_id': chat_id})
+
     if not user:
-        # print("Usuario no encontrado en la base de datos.")
-        return "Usuario no encontrado."
+        await update.message.reply_text("Usuario no encontrado.")
+        return ConversationHandler.END
+
+    context.user_data['step'] = ESPERANDO_FECHA
+
+    await update.message.reply_text(
+        "Por favor, escribe desde qué fecha hasta qué fecha necesitas el resumen.\n"
+        "Ejemplo: `1 de enero al 15 de enero` o `2024-01-01 a 2024-01-15`"
+    )
+
+    return ESPERANDO_FECHA
+
+async def process_summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    chat_id = update.message.chat_id
+    input_user = update.message.text  # Guardamos la respuesta del usuario
+
+    if context.user_data.get('step') != ESPERANDO_FECHA:
+        await update.message.reply_text("Por favor, selecciona una opción del menú.")
+        return ConversationHandler.END
     
-    # print(f"Usuario encontrado: {user}")  # Verificar datos del usuario
-    
-    user_periodo = user.get('periodo')  # "mensual" o "quincenal"
-    fecha_actual = datetime.now()
-    # print(f"Periodo del usuario: {user_periodo}")
-    # print(f"Fecha actual: {fecha_actual}")
+    # Obtener los registros del usuario
+    registros = list(collection_reg.find({'user_id': chat_id}))
 
-    # Define las fechas de inicio y fin según el periodo
-    if user_periodo == "mensual":
-        inicio = datetime(fecha_actual.year, fecha_actual.month, 1)
-        fin = fecha_actual  # Hasta hoy
-        print(f"Periodo mensual: Inicio: {inicio}, Fin: {fin}")
-    elif user_periodo == "quincenal":
-        dia_actual = fecha_actual.day
-        if dia_actual <= 15:  # Primera quincena
-            inicio = datetime(fecha_actual.year, fecha_actual.month, 1)
-        else:  # Segunda quincena
-            inicio = datetime(fecha_actual.year, fecha_actual.month, 16)
-        fin = fecha_actual  # Hasta hoy
-        print(f"Periodo quincenal: Inicio: {inicio}, Fin: {fin}")
-    else:
-        print("Periodo no válido configurado en el usuario.")
-        return "Periodo no válido. Configure 'mensual' o 'quincenal'."
+    if not registros:
+        await update.message.reply_text("No se encontraron registros en ese período.")
+        return ConversationHandler.END
 
-    # Filtrar registros por fecha
-    registros = collection_reg.find({
-        'user_id': chat_id,
-        'fecha': {
-            '$gte': inicio,
-            '$lte': fin
-        }
-    })
-
-    registros = list(registros)  # Convertir a lista para depuración
-    # print(f"Registros encontrados: {registros}")  # Verificar los registros encontrados
-
-    # Formatea la respuesta
-    lista_registros = [f"{reg['descripcion']} - {reg['monto']} - {reg['fecha']}" for reg in registros]
-    if not lista_registros:
-        # print("No se encontraron registros en este periodo.")
-        return "No se encontraron registros en este periodo."
-
+    # Formatear la respuesta
+    lista_registros = [
+        f"{reg['descripcion']} - {reg['monto']} - {reg['fecha'].strftime('%Y-%m-%d')}"
+        for reg in registros
+    ]
     respuesta = "\n".join(lista_registros)
-    print(f"Respuesta generada:\n{respuesta}")  # Verificar la respuesta final
 
-    # funcion con IA
-    genai.configure(api_key="AIzaSyBC__t_3GCTPwpoMz-h147OEwdZVwX5gqU")
+    # Generar informe con IA
+    genai.configure(api_key = gemini_key)
     model = genai.GenerativeModel("gemini-1.5-flash")
     prompt = f"""
-    A continuación se muestra un resumen de transacciones financieras del usuario. Por favor, genera un informe detallado y profesional que incluya:
-    1. Una introducción general sobre el periodo cubierto.
-    2. Un desglose de las transacciones agrupadas por categoría (si aplica).
-    3. Un análisis general que resuma el total gastado o ingresado.
-    4. Observaciones o recomendaciones basadas en los datos.
+    Genera un informe financiero corto.
 
-    Resumen de transacciones:
+    Fechas a utilizar para hacer el resumen:
+    {input_user}
+
+    Transacciones a analizar:
     {respuesta}
-
-    Genera el informe en un tono profesional y claro.
     """
     response = model.generate_content(prompt)
-    print(response.text)
+
+    # Enviar el resumen generado por IA al usuario
+    await update.message.reply_text("Aquí tienes tu resumen financiero:")
+    await update.message.reply_text(response.text)
+
+    context.user_data['step'] = None
+    return ConversationHandler.END  # Finaliza la conversación
 
 
 async def insert_expenses_or_income(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -238,53 +199,61 @@ async def handle_descripcion(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def send_reminders(app):
-    async with app:
-        users = collection.find({})
-        for user in users:
-            try:
-                user_id = user["user_id"]
-                await app.bot.send_message(user_id, "¡Recuerda registrar tus ingresos o gastos para mantener tu control financiero!")
-            except Exception as e:
-                print(f"Error al enviar mensaje a {user_id}: {e}")
+    users = collection.find({})  # Obtener todos los usuarios
 
-def schedule_notifications(app):
-    scheduler = BackgroundScheduler()
-    
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+    for user in users:
+        user_id = user.get("user_id")  # Obtener el user_id
 
-    def send_task():
-        asyncio.run_coroutine_threadsafe(send_reminders(app), loop)
+        try:
+            await app.bot.send_message(user_id, "¡Recuerda registrar tus ingresos o gastos para mantener tu control financiero!")
+            print(f"Mensaje enviado a {user_id}")
 
-    scheduler.add_job(
-        send_task,
-        'interval',
-        hours=8
-    )
-    scheduler.start()   
+        except Exception as e:
+            print(f"Error al enviar mensaje a {user_id}: {e}")
+
+async def schedule_reminders(app):
+    """Ejecuta send_reminders cada cierto tiempo."""
+    await asyncio.sleep(28800)
+
+    while True:
+        await send_reminders(app)
+        await asyncio.sleep(28800)  # 8 horas
+
+def start_schedule_reminders(app):
+    """Ejecuta schedule_reminders en un hilo separado."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(schedule_reminders(app))
 
 
 def main():
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     app = ApplicationBuilder().token(token).build()
-    app_url = os.getenv('RENDER_EXTERNAL_URL')
-
-    schedule_notifications(app)
+    app_url = os.getenv('URL')
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(insert_expenses_or_income, pattern='^(gasto_fijo|gasto_variable|ahorro_o_inversion|ingreso)$'))
-    app.add_handler(CallbackQueryHandler(get_income, pattern='^(q2|m1)$'))
     
+    conversation_handler = ConversationHandler(
+        entry_points=[CommandHandler("resumen", get_summary)],
+        states={
+            ESPERANDO_FECHA: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_summary)],
+        },
+        fallbacks=[]  # Puedes agregar fallbacks si es necesario
+    )
+    app.add_handler(conversation_handler)
+
+    # Iniciar el bucle de recordatorios en un hilo separado
+    reminder_thread = threading.Thread(target=start_schedule_reminders, args=(app,), daemon=True)
+    reminder_thread.start()
+
     app.run_webhook(
         listen='0.0.0.0',
         port=8000,
-        secret_token="AAEhVYUgyOzFkxzdqkdE0-9pysEH8-y8ttg",
-        # webhook_url=app_url
-        webhook_url='https://0909-190-219-103-238.ngrok-free.app'
+        secret_token = token.split(":", 1)[1].strip(),
+        webhook_url=app_url
+        # webhook_url='https://f2a8-181-197-40-234.ngrok-free.app'
     )
 
 if __name__ == "__main__":
