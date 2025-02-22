@@ -129,6 +129,16 @@ async def process_summary(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     context.user_data['step'] = None
     return ConversationHandler.END  # Finaliza la conversación
 
+async def start_insert(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Muestra las opciones de categorías cuando el usuario usa /ingresar"""
+    keyboard = [
+        [InlineKeyboardButton("🎯 Gasto fijo", callback_data='gasto_fijo')],
+        [InlineKeyboardButton("🎲 Gastos variables", callback_data='gasto_variable')],
+        [InlineKeyboardButton("🧩 Ahorro o inversión", callback_data='ahorro_o_inversion')],
+        [InlineKeyboardButton("💵 Ingreso", callback_data='ingreso')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Por favor, selecciona una categoría.", reply_markup=reply_markup)
 
 async def insert_expenses_or_income(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
@@ -224,6 +234,7 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(CommandHandler("ingresar", start_insert))
     app.add_handler(CallbackQueryHandler(insert_expenses_or_income, pattern='^(gasto_fijo|gasto_variable|ahorro_o_inversion|ingreso)$'))
     
     conversation_handler = ConversationHandler(
