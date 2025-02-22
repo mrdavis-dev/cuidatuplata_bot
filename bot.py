@@ -21,13 +21,6 @@ collection = db["users"]
 collection_reg = db["registro"]
 
 
-def get_reply_keyboard():
-    return ReplyKeyboardMarkup(
-        [['Ver Resumen', 'Ingresar']],
-        one_time_keyboard=True,
-        resize_keyboard=True
-    )
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
     user_name = update.message.from_user.first_name
@@ -44,11 +37,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "name": user_name,
             "created_at": local_date
         })
-    reply_markup = get_reply_keyboard()
 
     await update.message.reply_text(
         f"Hola {user_name}! Soy tu bot de finanzas. ¿Qué deseas hacer?",
-        reply_markup=reply_markup
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -61,11 +52,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await handle_monto(update, context)
     elif step == 'get_descripcion':
         await handle_descripcion(update, context)
-    elif text == 'Ver Resumen':
+    elif text == 'resumen':
         await get_summary(update, context)
     elif step == ESPERANDO_FECHA:  # Si está esperando una fecha, vamos al proceso de resumen
         await process_summary(update, context)
-    elif text == 'Ingresar':
+    elif text == 'ingresar':
         keyboard = [
             [InlineKeyboardButton("🎯 Gasto fijo", callback_data='gasto_fijo')],
             [InlineKeyboardButton("🎲 Gastos variables", callback_data='gasto_variable')],
