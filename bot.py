@@ -14,8 +14,7 @@ ESPERANDO_FECHA = 1
 
 clave = os.environ.get('CLAVE')
 gemini_key = os.environ.get('GEMINI_KEY')
-client = MongoClient(f"mongodb://mongo:{clave}@roundhouse.proxy.rlwy.net:47036")
-# client = MongoClient("mongodb://localhost:27017/")
+client = MongoClient("mongodb://localhost:27017/")
 db = client["paylog"]
 collection = db["users"]
 collection_reg = db["registro"]
